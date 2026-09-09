@@ -37,8 +37,10 @@ export interface YouComFetchProviderOptions {
  *   `markdown` nor `html` — You.com found nothing retrievable for the URL.
  */
 export function mapYouComContentsResponse(response: YouComContentsResponse, requestUrl: string): WebFetchResult {
-  const markdown = response.markdown ?? undefined
-  const html = response.html ?? undefined
+  // An empty string is not usable content either (a real response shape for an unparseable
+  // page) — treat it the same as absent rather than returning an empty-but-successful body.
+  const markdown = response.markdown != null && response.markdown.length > 0 ? response.markdown : undefined
+  const html = response.html != null && response.html.length > 0 ? response.html : undefined
   if (markdown === undefined && html === undefined) {
     throw new WebError('You.com contents returned no retrievable page content', 'WEB_PROVIDER_ERROR')
   }
@@ -76,7 +78,10 @@ export class YouComFetchProvider implements WebFetchProvider {
           'accept': 'application/json',
           'x-client-info': buildClientInfoHeader(this.options.pluginVersion),
         },
-        body: JSON.stringify({ urls: [request.url], formats: ['markdown'] }),
+        // Request both formats so the html fallback in mapYouComContentsResponse is reachable:
+        // the endpoint returns only included formats, and a page that fails Markdown
+        // conversion may still yield HTML.
+        body: JSON.stringify({ urls: [request.url], formats: ['markdown', 'html'] }),
         ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {

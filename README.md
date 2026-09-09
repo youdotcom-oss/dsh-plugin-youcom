@@ -62,6 +62,14 @@ It is not auto-installed by this package's `cordis.patch.yml`: a patch replaces 
 
 Then select `youcom-research` for a session the same way you'd select any other preset.
 
+## Known Limitations and Deferred Work
+
+- **Not yet exercised against the live You.com API.** Every wire shape here (field names, hosts, error envelope) comes from the `youdotcom-typescript-sdk` docs and the working `n8n-nodes-youdotcom` implementation, not a live call from this package. Run a smoke test with a real `YDC_API_KEY` before publishing.
+- **`fetch`'s `statusCode` is always `200` on success.** `/v1/contents` retrieves and extracts server-side and reports no origin HTTP status, so a page that 404'd at the origin but still yielded extractable content is indistinguishable from a clean 200 here — unlike `dsh-web-fetch-http`, which reports the real code.
+- **`fetch`'s `truncated` is always `false`.** `/v1/contents` documents no truncation signal, so this can under-report but never over-report.
+- **`PLUGIN_VERSION` in `src/index.ts` is a hand-maintained literal**, not read from `package.json` — bump it alongside every version bump (the same approach `dsh-web-search-exa` takes for its `USER_AGENT`).
+- **The `youdotcom-oss/dsh-plugin-youcom` GitHub repo doesn't exist yet** — an assumption baked into `package.json`'s `repository`/`homepage` fields. (The npm name `dsh-plugin-youcom` is confirmed available as of 2026-09-09.)
+
 ## Development
 
 ```sh

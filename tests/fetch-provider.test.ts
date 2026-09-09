@@ -33,6 +33,16 @@ describe('You.com contents mapping', () => {
     expect(() => mapYouComContentsResponse({ url: 'https://a.test' }, 'https://a.test'))
       .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
+
+  it('treats an empty-string markdown as absent and falls back to html', () => {
+    expect(mapYouComContentsResponse({ url: 'https://a.test', markdown: '', html: '<p>hi</p>' }, 'https://a.test').body)
+      .toEqual({ kind: 'html', content: '<p>hi</p>' })
+  })
+
+  it('throws WEB_PROVIDER_ERROR when both markdown and html are empty strings', () => {
+    expect(() => mapYouComContentsResponse({ url: 'https://a.test', markdown: '', html: '' }, 'https://a.test'))
+      .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
 })
 
 describe('YouComFetchProvider availability', () => {
@@ -61,7 +71,7 @@ describe('YouComFetchProvider request mapping', () => {
     expect(url.toString()).toBe('https://api.youcom.test/v1/contents')
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['x-api-key']).toBe('youcom-key')
-    expect(JSON.parse(init.body as string)).toEqual({ urls: ['https://a.test'], formats: ['markdown'] })
+    expect(JSON.parse(init.body as string)).toEqual({ urls: ['https://a.test'], formats: ['markdown', 'html'] })
   })
 
   it('takes the first entry when the response is an array', async () => {
