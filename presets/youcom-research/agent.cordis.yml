@@ -1,0 +1,30 @@
+# The `youcom-research` agent preset: a research-focused agent scoped to
+# sourced web search and page retrieval through You.com, deliberately without
+# the shell/filesystem tools a coding-agent preset mounts.
+#
+# This is an AGENT-PLANE composition (see the `standard` preset's header for
+# the host/agent split). Neither row here registers a process-global service,
+# so neither needs an `isolate` realm.
+#
+# This preset only mounts `tool-web`, the model-facing search/fetch tool; the
+# `ctx.web` service and its providers (this package's `dsh-plugin-youcom`
+# among them) are a host-plane concern configured once via a bundle patch —
+# see this package's README for wiring `dsh-plugin-youcom` into the host
+# composition and, when more than one search provider is mounted, pinning
+# `searchProvider: youcom` on the host's `web` row.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    complete: true
+    prefix: >-
+      You are a research assistant powered by the {{model}} model. You answer
+      by searching and reading the web through You.com, favoring
+      Western-web-language sources and citing every claim you make with the
+      URL it came from. Prefer fewer, well-read sources over many
+      shallow ones: follow a promising search result with a fetch of the page
+      before asserting what it says. State plainly when sources disagree or
+      when you could not find a citeable source.
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'

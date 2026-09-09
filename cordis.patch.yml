@@ -1,0 +1,24 @@
+# The dsh-plugin-youcom bundle patch: mounts the You.com search + fetch
+# provider into an existing composition's `ctx.web`. Requires the composition
+# already loads `@deepseek-ai/dsh-web` (every shipped profile does).
+#
+# This only inserts a new row, so it is safe to stack alongside other search
+# providers (Exa, Perplexity, DeepSeek's own). When more than one search
+# provider ends up mounted, pin the one to use on the host's `web` row:
+#
+#   - id: web
+#     config:
+#       searchProvider: youcom
+#
+# The `youcom-research` agent preset (see this package's presets/ directory)
+# is a separate, opt-in differentiator: a research-oriented agent persona
+# scoped to web search/fetch. Wiring it in is a `dsh-agent-presets` `roots`
+# config change, documented in this package's README rather than patched
+# here — a patch replaces a row's whole config, and this package must not
+# guess at (and clobber) a deployment's existing preset roots.
+
+- insert:
+    - id: youcom
+      name: dsh-plugin-youcom
+      config:
+        apiKey: !!js process.env.YDC_API_KEY
