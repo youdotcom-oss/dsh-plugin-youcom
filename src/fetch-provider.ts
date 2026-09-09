@@ -9,7 +9,8 @@
 import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
-import type { YouComContentsResponse, YouComErrorResponse } from './types.js'
+import { extractYouComErrorMessage } from './error-message.js'
+import type { YouComContentsResponse } from './types.js'
 
 /** Stable id this provider registers under. */
 export const YOUCOM_FETCH_PROVIDER_ID = 'youcom'
@@ -93,9 +94,9 @@ export class YouComFetchProvider implements WebFetchProvider {
       const status = response.status
       let message = `You.com API error (HTTP ${status})`
       try {
-        const parsed = await response.json() as YouComErrorResponse
-        const detail = parsed.error ?? parsed.message ?? parsed.detail
-        if (detail !== undefined && detail.length > 0) message = detail
+        const parsed: unknown = await response.json()
+        const detail = extractYouComErrorMessage(parsed)
+        if (detail !== undefined) message = detail
       } catch (error: unknown) {
         if (isAbortError(error)) throw new WebError('You.com contents fetch aborted', 'WEB_ABORTED', { cause: error })
       }
@@ -103,9 +104,9 @@ export class YouComFetchProvider implements WebFetchProvider {
     }
 
     try {
+      // The wire response is an array — one entry per requested URL, in request order — even
+      // for our single-URL request; tolerate a bare object defensively in case that ever changes.
       const payload = await response.json() as YouComContentsResponse | YouComContentsResponse[]
-      // The wire response is a single object for a single-URL request; tolerate an array shape
-      // defensively rather than assume undocumented behavior never changes.
       const entry = Array.isArray(payload) ? payload[0] : payload
       if (entry === undefined) throw new WebError('You.com contents returned an empty response', 'WEB_PROVIDER_ERROR')
       return mapYouComContentsResponse(entry, request.url)

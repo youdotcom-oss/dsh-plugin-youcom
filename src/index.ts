@@ -1,7 +1,7 @@
 /**
  * You.com search + fetch provider plugin for the DeepSeek Harness web
  * capability seam (`ctx.web`). Registers both a `WebSearchProvider`
- * (`GET /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) under one
+ * (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) under one
  * plugin so a single `apiKey` config covers both.
  * @module dsh-plugin-youcom
  */

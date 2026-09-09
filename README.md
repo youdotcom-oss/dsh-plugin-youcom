@@ -4,7 +4,7 @@ A [You.com](https://you.com) search + fetch provider plugin for [DeepSeek Harnes
 
 Ships two things:
 
-- **`dsh-plugin-youcom`** — a Cordis plugin registering a `WebSearchProvider` (`GET /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with `ctx.web`, the same seam Exa/Perplexity/DeepSeek's own search providers use.
+- **`dsh-plugin-youcom`** — a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with `ctx.web`, the same seam Exa/Perplexity/DeepSeek's own search providers use.
 - **`youcom-research`** — an agent preset composing a research-oriented persona around `web_search`/`web_fetch`, favoring Western-web-depth, cited sources over broad tool access.
 
 ## Install
@@ -64,7 +64,9 @@ Then select `youcom-research` for a session the same way you'd select any other 
 
 ## Known Limitations and Deferred Work
 
-- **Not yet exercised against the live You.com API.** Every wire shape here (field names, hosts, error envelope) comes from the `youdotcom-typescript-sdk` docs and the working `n8n-nodes-youdotcom` implementation, not a live call from this package. Run a smoke test with a real `YDC_API_KEY` before publishing.
+- **Verified live against the real API on 2026-09-09** (`POST /v1/search`, `POST /v1/contents`, and an invalid-key rejection), not just against SDK docs — see the corrections below, all found only by that live call. The `youdotcom-typescript-sdk` is out of date: it still documents `/v1/search` as `GET`; the current `youdotcom-python-sdk` and a live call both confirm `POST` with a JSON body. Re-run the smoke test in `tests/` fixtures or a manual call before relying on a new field this package doesn't already map.
+- **Search result fields are snake_case on the wire** (`page_age`, `favicon_url`), not the camelCase the TypeScript SDK's docs example shows — that's the SDK's own post-deserialization renaming, not what the server sends. This package parses the raw response itself with no SDK in between, so `src/types.ts` matches the wire casing directly (confirmed live; a `pageAge`-based mapper silently drops every `publishedAt`, which was an initial bug here until this pass caught it).
+- **Error bodies come in more shapes than one SDK's docs suggest.** Confirmed live: an invalid key gets rejected at a gateway/authorizer layer with `{"message": "Forbidden"}` before ever reaching the app — a shape the `youdotcom-python-sdk`'s app-level error models (`{"detail": "..."}`, plus a `{"error": "..."}` / FastAPI-validation-array / JSON:API-array trio specific to `/v1/search`'s 422) don't document at all. `src/error-message.ts` checks all of these.
 - **`fetch`'s `statusCode` is always `200` on success.** `/v1/contents` retrieves and extracts server-side and reports no origin HTTP status, so a page that 404'd at the origin but still yielded extractable content is indistinguishable from a clean 200 here — unlike `dsh-web-fetch-http`, which reports the real code.
 - **`fetch`'s `truncated` is always `false`.** `/v1/contents` documents no truncation signal, so this can under-report but never over-report.
 - **`PLUGIN_VERSION` in `src/index.ts` is a hand-maintained literal**, not read from `package.json` — bump it alongside every version bump (the same approach `dsh-web-search-exa` takes for its `USER_AGENT`).

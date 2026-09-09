@@ -1,9 +1,15 @@
 /**
- * You.com-backed `WebSearchProvider` (`GET /v1/search`). Maps `results.web[]`
+ * You.com-backed `WebSearchProvider` (`POST /v1/search`). Maps `results.web[]`
  * and `results.news[]` to citeable sources: the first non-blank snippet (or
- * `description` as a fallback) becomes `snippet`, and `pageAge` becomes
- * `publishedAt`. You.com's search endpoint returns no generated answer, so
- * `content` is omitted rather than invented.
+ * `description` as a fallback) becomes `snippet`, and the wire's `page_age`
+ * becomes `publishedAt`. You.com's search endpoint returns no generated
+ * answer, so `content` is omitted rather than invented.
+ *
+ * The endpoint is `POST` with a JSON body — the TypeScript SDK's generated
+ * operation still documents it as `GET` with query params, but the current
+ * `youdotcom-python-sdk` (`sdk.py`'s `_build_request(method="POST", ...,
+ * get_serialized_body=...)`) and the working `n8n-nodes-youdotcom` node both
+ * confirm `POST` with a body is what the server actually accepts.
  * @module dsh-plugin-youcom/search-provider
  */
 
@@ -15,7 +21,8 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
-import type { YouComErrorResponse, YouComSearchResponse, YouComSearchResultEntry } from './types.js'
+import { extractYouComErrorMessage } from './error-message.js'
+import type { YouComSearchResponse, YouComSearchResultEntry } from './types.js'
 
 /** Stable id this provider registers under. */
 export const YOUCOM_PROVIDER_ID = 'youcom'
@@ -52,14 +59,14 @@ export function mapYouComResult(entry: YouComSearchResultEntry): WebSearchSource
     url: entry.url,
     ...entry.title != null && entry.title.length > 0 ? { title: entry.title } : {},
     ...snippet != null && snippet.length > 0 ? { snippet } : {},
-    ...entry.pageAge != null && entry.pageAge.length > 0 ? { publishedAt: entry.pageAge } : {},
+    ...entry.page_age != null && entry.page_age.length > 0 ? { publishedAt: entry.page_age } : {},
   }
 }
 
 /**
  * Map a You.com search response envelope to a normalized search result.
  *
- * @param response - the parsed `GET /v1/search` response body.
+ * @param response - the parsed `POST /v1/search` response body.
  * @param includeNews - whether `results.news[]` is merged in after `results.web[]`.
  * @returns the normalized result; URL-less entries are dropped ({@link mapYouComResult}).
  */
@@ -92,19 +99,22 @@ export class YouComSearchProvider implements WebSearchProvider {
     // A per-request bound wins over the configured default; either may be absent.
     const numResults = request.maxResults ?? this.options.numResults
     const url = new URL('/v1/search', this.options.baseURL)
-    url.searchParams.set('query', request.query)
-    if (numResults !== undefined) url.searchParams.set('count', String(numResults))
 
     let response: Response
     try {
       response = await fetch(url, {
-        method: 'GET',
+        method: 'POST',
         redirect: 'error',
         headers: {
           'x-api-key': this.options.apiKey,
+          'content-type': 'application/json',
           'accept': 'application/json',
           'x-client-info': buildClientInfoHeader(this.options.pluginVersion),
         },
+        body: JSON.stringify({
+          query: request.query,
+          ...numResults !== undefined ? { count: numResults } : {},
+        }),
         ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
@@ -116,9 +126,9 @@ export class YouComSearchProvider implements WebSearchProvider {
       const status = response.status
       let message = `You.com API error (HTTP ${status})`
       try {
-        const parsed = await response.json() as YouComErrorResponse
-        const detail = parsed.error ?? parsed.message ?? parsed.detail
-        if (detail !== undefined && detail.length > 0) message = detail
+        const parsed: unknown = await response.json()
+        const detail = extractYouComErrorMessage(parsed)
+        if (detail !== undefined) message = detail
       } catch (error: unknown) {
         // An abort fired mid-body must surface as WEB_ABORTED, not be swallowed
         // into a generic HTTP-error message — cancellation is not a provider

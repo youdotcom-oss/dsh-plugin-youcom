@@ -91,8 +91,8 @@ describe('YouComFetchProvider request mapping', () => {
 })
 
 describe('YouComFetchProvider error handling', () => {
-  it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad key' }, { status: 401 })))
+  it('maps a 401 {detail} error to WEB_PROVIDER_ERROR with the provider message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'bad key' }, { status: 401 })))
     await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'bad key' }))
   })

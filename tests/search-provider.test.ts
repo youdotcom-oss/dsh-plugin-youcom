@@ -21,7 +21,7 @@ describe('You.com result mapping', () => {
       title: 'A',
       description: 'fallback description',
       snippets: ['salient sentence', 'second'],
-      pageAge: '2026-01-01',
+      page_age: '2026-01-01',
     })).toEqual({ url: 'https://a.test', title: 'A', snippet: 'salient sentence', publishedAt: '2026-01-01' })
   })
 
@@ -32,12 +32,20 @@ describe('You.com result mapping', () => {
       .toEqual({ url: 'https://a.test', snippet: 'fallback' })
   })
 
+  it('reads the wire\'s snake_case page_age, not a camelCase pageAge', () => {
+    // Regression test: a live call confirmed the raw wire response is snake_case
+    // (page_age, favicon_url, ...) — the TypeScript SDK's docs show a camelCase example,
+    // but that's the SDK's own post-deserialization renaming, not what the server sends.
+    expect(mapYouComResult({ url: 'https://a.test', page_age: '2026-01-01', snippets: ['hi'] }))
+      .toEqual({ url: 'https://a.test', snippet: 'hi', publishedAt: '2026-01-01' })
+  })
+
   it('drops a result with no URL', () => {
     expect(mapYouComResult({ url: '' })).toBeUndefined()
   })
 
   it('omits empty optional fields rather than emitting them', () => {
-    expect(mapYouComResult({ url: 'https://a.test', title: '', pageAge: '' }))
+    expect(mapYouComResult({ url: 'https://a.test', title: '', page_age: '' }))
       .toEqual({ url: 'https://a.test' })
   })
 
@@ -102,34 +110,36 @@ describe('YouComSearchProvider request mapping', () => {
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(url.toString()).toBe('https://api.youcom.test/v1/search?query=hello&count=5')
-    expect(init).toMatchObject({ method: 'GET', redirect: 'error' })
+    expect(url.toString()).toBe('https://api.youcom.test/v1/search')
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['x-api-key']).toBe('youcom-key')
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/json')
     expect((init.headers as Record<string, string>)['x-client-info']).toContain('client=dsh-plugin-youcom/0.1.0')
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hello', count: 5 })
   })
 
   it('falls back to the configured numResults when a request omits maxResults', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ results: {} }))
     vi.stubGlobal('fetch', fetchMock)
     await new YouComSearchProvider({ ...options, numResults: 7 }).search({ query: 'q' })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.searchParams.get('count')).toBe('7')
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(JSON.parse(init.body as string)).toMatchObject({ count: 7 })
   })
 
   it('lets a request maxResults win over the configured numResults', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ results: {} }))
     vi.stubGlobal('fetch', fetchMock)
     await new YouComSearchProvider({ ...options, numResults: 7 }).search({ query: 'q', maxResults: 2 })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.searchParams.get('count')).toBe('2')
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(JSON.parse(init.body as string)).toMatchObject({ count: 2 })
   })
 
   it('omits count when neither maxResults nor a configured default is set', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ results: {} }))
     vi.stubGlobal('fetch', fetchMock)
     await new YouComSearchProvider(options).search({ query: 'q' })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.searchParams.has('count')).toBe(false)
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('count')
   })
 
   it('forwards the abort signal', async () => {
@@ -143,10 +153,38 @@ describe('YouComSearchProvider request mapping', () => {
 })
 
 describe('YouComSearchProvider error handling', () => {
-  it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad key' }, { status: 401 })))
+  it('maps a 401 {detail} error to WEB_PROVIDER_ERROR with the provider message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'bad key' }, { status: 401 })))
     await expect(new YouComSearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'bad key' }))
+  })
+
+  it('maps a 422 {error} (search-spec) error to WEB_PROVIDER_ERROR with the provider message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'invalid_params' }, { status: 422 })))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'invalid_params' }))
+  })
+
+  it('maps a 422 {detail: [...]} (FastAPI validation) error, joining each entry\'s msg', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      detail: [{ type: 'value_error', loc: ['query'], msg: 'field required' }, { msg: 'count must be >= 1' }],
+    }, { status: 422 })))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'field required; count must be >= 1' }))
+  })
+
+  it('maps a 422 {errors: [...]} (JSON:API) error, joining each entry\'s title', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      errors: [{ status: '422', code: 'bad_request', title: 'Malformed query' }],
+    }, { status: 422 })))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'Malformed query' }))
+  })
+
+  it('maps a gateway-level {message} rejection (confirmed live with an invalid key) to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ message: 'Forbidden' }, { status: 403 })))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'Forbidden' }))
   })
 
   it('keeps a status-line message when the error body is not JSON', async () => {
