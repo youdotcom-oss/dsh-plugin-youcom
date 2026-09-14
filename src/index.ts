@@ -7,6 +7,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import { YOUCOM_DEFAULT_BASE_URL, YouComSearchProvider } from './search-provider.js'
@@ -59,9 +60,7 @@ export const Config: z<Config> = z.object({
 
 /** Register the You.com search and fetch providers with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
-  // Every environment layer may name this key: the product trusts the project it is launched
-  // in, and the managed store is not involved here (matching the Exa/Perplexity providers).
-  const apiKey = config.apiKey ?? process.env.YDC_API_KEY ?? ''
+  const apiKey = config.apiKey ?? launchEnvironmentOf(ctx).get('YDC_API_KEY')?.value ?? ''
   const baseURL = config.baseURL
 
   ctx.web.registerSearchProvider(new YouComSearchProvider({

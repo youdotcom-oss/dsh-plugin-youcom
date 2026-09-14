@@ -22,6 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
 import { extractYouComErrorMessage } from './error-message.js'
+import { isAbortError, isValidBaseUrl } from './shared.js'
 import type { YouComSearchResponse, YouComSearchResultEntry } from './types.js'
 
 /** Stable id this provider registers under. */
@@ -150,17 +151,9 @@ export class YouComSearchProvider implements WebSearchProvider {
   }
 }
 
-/** True when `baseURL` parses as an absolute URL (a cheap local config check). */
-function isValidBaseUrl(baseURL: string): boolean {
-  return URL.canParse(baseURL)
-}
-
 /** True for a request limit that can be sent to You.com (a positive whole number). */
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
 
-/** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
+

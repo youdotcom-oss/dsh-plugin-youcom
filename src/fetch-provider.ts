@@ -10,6 +10,7 @@ import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
 import { extractYouComErrorMessage } from './error-message.js'
+import { isAbortError, isValidBaseUrl } from './shared.js'
 import type { YouComContentsResponse } from './types.js'
 
 /** Stable id this provider registers under. */
@@ -118,12 +119,4 @@ export class YouComFetchProvider implements WebFetchProvider {
   }
 }
 
-/** True when `baseURL` parses as an absolute URL (a cheap local config check). */
-function isValidBaseUrl(baseURL: string): boolean {
-  return URL.canParse(baseURL)
-}
 
-/** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
