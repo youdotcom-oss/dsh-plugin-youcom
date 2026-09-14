@@ -1,4 +1,4 @@
-# The dsh-plugin-youcom bundle patch: mounts the You.com search + fetch
+# The @youdotcom-oss/dsh-plugin-youcom bundle patch: mounts the You.com search + fetch
 # provider into an existing composition's `ctx.web`. Requires the composition
 # already loads `@deepseek-ai/dsh-web` (every shipped profile does).
 #
@@ -19,6 +19,6 @@
 
 - insert:
     - id: youcom
-      name: dsh-plugin-youcom
+      name: '@youdotcom-oss/dsh-plugin-youcom'
       config:
         apiKey: !!js process.env.YDC_API_KEY

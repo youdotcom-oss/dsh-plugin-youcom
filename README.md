@@ -12,14 +12,14 @@ Ships two things:
 `dsh`'s core repo has Issues/PRs disabled, so third-party search providers ship as out-of-tree plugins discovered via the `dsh-plugin` GitHub topic, not core PRs. Add this package to a profile:
 
 ```sh
-dsh plugin --profile <your-profile> add dsh-plugin-youcom
+dsh plugin --profile <your-profile> add @youdotcom-oss/dsh-plugin-youcom
 ```
 
 Or mount it directly in a `cordis.patch.yml` (this package ships one — see [`cordis.patch.yml`](./cordis.patch.yml) — that inserts the row below into an existing `dsh-web` composition):
 
 ```yaml
 - id: youcom
-  name: dsh-plugin-youcom
+  name: @youdotcom-oss/dsh-plugin-youcom
   config:
     apiKey: !!js process.env.YDC_API_KEY
 ```
@@ -56,7 +56,7 @@ It is not auto-installed by this package's `cordis.patch.yml`: a patch replaces 
 - id: agent-presets
   config:
     roots:
-      - path: node_modules/dsh-plugin-youcom/presets
+      - path: node_modules/@youdotcom-oss/dsh-plugin-youcom/presets
         trust: system
 ```
 
@@ -70,7 +70,7 @@ Then select `youcom-research` for a session the same way you'd select any other 
 - **`fetch`'s `statusCode` is always `200` on success.** `/v1/contents` retrieves and extracts server-side and reports no origin HTTP status, so a page that 404'd at the origin but still yielded extractable content is indistinguishable from a clean 200 here — unlike `dsh-web-fetch-http`, which reports the real code.
 - **`fetch`'s `truncated` is always `false`.** `/v1/contents` documents no truncation signal, so this can under-report but never over-report.
 - **`PLUGIN_VERSION` in `src/index.ts` is a hand-maintained literal**, not read from `package.json` — bump it alongside every version bump (the same approach `dsh-web-search-exa` takes for its `USER_AGENT`).
-- **The `youdotcom-oss/dsh-plugin-youcom` GitHub repo doesn't exist yet** — an assumption baked into `package.json`'s `repository`/`homepage` fields. (The npm name `dsh-plugin-youcom` is confirmed available as of 2026-09-09.)
+- **The `youdotcom-oss/dsh-plugin-youcom` GitHub repo doesn't exist yet** — an assumption baked into `package.json`'s `repository`/`homepage` fields. (The npm name `@youdotcom-oss/dsh-plugin-youcom` is confirmed available as of 2026-09-09.)
 
 ## Development
 

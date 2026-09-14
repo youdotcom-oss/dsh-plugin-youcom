@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-youcom",
+  "name": "@youdotcom-oss/dsh-plugin-youcom",
   "description": "You.com search + fetch provider plugin for DeepSeek Harness (dsh), plus a stackable research-profile bundle",
   "version": "0.1.0",
   "publishConfig": {
