@@ -3,7 +3,7 @@
 # already loads `@deepseek-ai/dsh-web` (every shipped profile does).
 #
 # This only inserts a new row, so it is safe to stack alongside other search
-# providers (Exa, Perplexity, DeepSeek's own). When more than one search
+# providers. When more than one search
 # provider ends up mounted, pin the one to use on the host's `web` row:
 #
 #   - id: web

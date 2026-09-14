@@ -4,7 +4,7 @@ A [You.com](https://you.com) search + fetch provider plugin for [DeepSeek Harnes
 
 Ships two things:
 
-- **`dsh-plugin-youcom`** — a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with `ctx.web`, the same seam Exa/Perplexity/DeepSeek's own search providers use.
+- **`dsh-plugin-youcom`** — a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with the dsh web seam (`ctx.web`).
 - **`youcom-research`** — an agent preset composing a research-oriented persona around `web_search`/`web_fetch`, favoring Western-web-depth, cited sources over broad tool access.
 
 ## Install
@@ -69,7 +69,7 @@ Then select `youcom-research` for a session the same way you'd select any other 
 - **Error bodies come in more shapes than one SDK's docs suggest.** Confirmed live: an invalid key gets rejected at a gateway/authorizer layer with `{"message": "Forbidden"}` before ever reaching the app — a shape the `youdotcom-python-sdk`'s app-level error models (`{"detail": "..."}`, plus a `{"error": "..."}` / FastAPI-validation-array / JSON:API-array trio specific to `/v1/search`'s 422) don't document at all. `src/error-message.ts` checks all of these.
 - **`fetch`'s `statusCode` is always `200` on success.** `/v1/contents` retrieves and extracts server-side and reports no origin HTTP status, so a page that 404'd at the origin but still yielded extractable content is indistinguishable from a clean 200 here — unlike `dsh-web-fetch-http`, which reports the real code.
 - **`fetch`'s `truncated` is always `false`.** `/v1/contents` documents no truncation signal, so this can under-report but never over-report.
-- **`PLUGIN_VERSION` in `src/index.ts` is a hand-maintained literal**, not read from `package.json` — bump it alongside every version bump (the same approach `dsh-web-search-exa` takes for its `USER_AGENT`).
+- **`PLUGIN_VERSION` in `src/index.ts` is a hand-maintained literal**, not read from `package.json` — bump it alongside every version bump.
 - **The `youdotcom-oss/dsh-plugin-youcom` GitHub repo doesn't exist yet** — an assumption baked into `package.json`'s `repository`/`homepage` fields. (The npm name `@youdotcom-oss/dsh-plugin-youcom` is confirmed available as of 2026-09-09.)
 
 ## Development
@@ -81,7 +81,7 @@ npm run typecheck
 npm test            # vitest
 ```
 
-`src/search-provider.ts` and `src/fetch-provider.ts` are thin adapters, deliberately mirroring the shape of `@deepseek-ai/dsh-web-search-exa` and `@deepseek-ai/dsh-web-fetch-http` in the core repo: cheap local `available()` checks, `WebError` with a routable `code` on every failure path, and no invented fields — a source with no snippet stays snippet-less rather than inventing one.
+`src/search-provider.ts` and `src/fetch-provider.ts` are thin adapters: cheap local `available()` checks, `WebError` with a routable `code` on every failure path, and no invented fields — a source with no snippet stays snippet-less rather than inventing one.
 
 ## License
 
