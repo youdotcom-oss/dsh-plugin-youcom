@@ -1,11 +1,8 @@
 # dsh-plugin-youcom
 
-A [You.com](https://you.com) search + fetch provider plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`), plus an opt-in research-focused agent preset.
+A [You.com](https://you.com) search + fetch provider plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`).
 
-Ships two things:
-
-- **`dsh-plugin-youcom`**—a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with the dsh web seam (`ctx.web`).
-- **`youcom-research`**—an agent preset composing a research-oriented persona around `web_search`/`web_fetch`, favoring depth and cited sources over broad tool access.
+`dsh-plugin-youcom` is a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with the dsh web seam (`ctx.web`).
 
 ## Install
 
@@ -53,22 +50,6 @@ Set `YDC_API_KEY` (get one at [you.com/platform/api-keys](https://you.com/platfo
     searchProvider: youcom
     fetchProvider: youcom
 ```
-
-## The `youcom-research` Agent Preset
-
-[`presets/youcom-research/`](./presets/youcom-research/) is a complete agent composition, not just a tool registration, scoped to sourced web research: a persona instructing citation-backed answers and preferring a `web_fetch` follow-up over asserting from a search snippet alone, plus `dsh-tool-web` mounted with no shell or filesystem tools alongside it.
-
-It is not auto-installed by this package's `cordis.patch.yml`. A patch replaces a targeted row's whole config, so silently rewriting your `dsh-agent-presets` `roots` list would risk clobbering preset roots you already configured. Add it yourself:
-
-```yaml
-- id: agent-presets
-  config:
-    roots:
-      - path: node_modules/@youdotcom-oss/dsh-plugin-youcom/presets
-        trust: system
-```
-
-Then select `youcom-research` for a session the same way you'd select any other preset.
 
 ## Known Limitations
 

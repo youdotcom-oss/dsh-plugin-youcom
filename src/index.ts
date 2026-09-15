@@ -31,7 +31,7 @@ export type { YouComFetchProviderOptions } from './fetch-provider.js'
 export { buildClientInfoHeader } from './attribution.js'
 
 /** This package's version, sent in the `X-Client-Info` attribution header. Bump with the package version. */
-const PLUGIN_VERSION = '0.1.0'
+const PLUGIN_VERSION = '0.1.1'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'dsh-plugin-youcom'

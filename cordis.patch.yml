@@ -8,13 +8,6 @@
 # To stack this alongside another provider instead, delete the `- id: web`
 # stanza below and manually pin `searchProvider: youcom` on your profile's own
 # cordis.patch.yml.
-#
-# The `youcom-research` agent preset (see this package's presets/ directory)
-# is a separate, opt-in differentiator: a research-oriented agent persona
-# scoped to web search/fetch. Wiring it in is a `dsh-agent-presets` `roots`
-# config change, documented in this package's README rather than patched
-# here — a patch replaces a row's whole config, and this package must not
-# guess at (and clobber) a deployment's existing preset roots.
 
 - id: web
   config:
