@@ -10,11 +10,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-web'
-import { YOUCOM_DEFAULT_BASE_URL, YouComSearchProvider } from './search-provider.js'
+import { YOUCOM_DEFAULT_BASE_URL, YOUCOM_FREE_MCP_URL, YouComSearchProvider } from './search-provider.js'
 import { YOUCOM_FETCH_DEFAULT_BASE_URL, YouComFetchProvider } from './fetch-provider.js'
 
 export {
   YOUCOM_DEFAULT_BASE_URL,
+  YOUCOM_FREE_MCP_URL,
   YOUCOM_PROVIDER_ID,
   YouComSearchProvider,
   mapYouComResult,
@@ -31,7 +32,7 @@ export type { YouComFetchProviderOptions } from './fetch-provider.js'
 export { buildClientInfoHeader } from './attribution.js'
 
 /** This package's version, sent in the `X-Client-Info` attribution header. Bump with the package version. */
-const PLUGIN_VERSION = '0.1.1'
+const PLUGIN_VERSION = '0.1.2'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'dsh-plugin-youcom'
@@ -41,10 +42,12 @@ export const inject = ['web']
 
 /** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
-  /** You.com API key. Falls back to `$YDC_API_KEY`. Empty → both providers unavailable. */
+  /** You.com API key. Falls back to `$YDC_API_KEY`. Empty → search falls back to the keyless MCP profile below, and fetch is unavailable. */
   apiKey?: string
   /** Endpoint base shared by `/v1/search` and `/v1/contents`. Defaults to the public API. */
   baseURL?: string
+  /** Keyless MCP endpoint search falls back to when `apiKey` is empty. Defaults to You.com's public `free` profile. No fetch equivalent exists. */
+  freeSearchURL?: string
   /** Default search result count when a request carries no `maxResults`. Omitted = none. */
   numResults?: number
   /** Merge `results.news[]` into search sources alongside `results.web[]`. Defaults to `true`. */
@@ -54,6 +57,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
+  freeSearchURL: z.string(),
   numResults: z.number().step(1).min(1),
   includeNews: z.boolean(),
 })
@@ -66,6 +70,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new YouComSearchProvider({
     apiKey,
     baseURL: baseURL ?? YOUCOM_DEFAULT_BASE_URL,
+    freeSearchURL: config.freeSearchURL ?? YOUCOM_FREE_MCP_URL,
     pluginVersion: PLUGIN_VERSION,
     includeNews: config.includeNews ?? true,
     ...config.numResults !== undefined ? { numResults: config.numResults } : {},

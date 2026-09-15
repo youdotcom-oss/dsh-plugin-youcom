@@ -21,7 +21,7 @@ export const YOUCOM_FETCH_DEFAULT_BASE_URL = 'https://ydc-index.io'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface YouComFetchProviderOptions {
-  /** You.com API key. Empty/absent makes the provider unavailable. */
+  /** You.com API key. Empty/absent makes the provider unavailable — unlike search, there is no keyless MCP fallback here (the free profile exposes no contents/fetch tool). */
   apiKey: string
   /** Endpoint base; `/v1/contents` is appended. */
   baseURL: string

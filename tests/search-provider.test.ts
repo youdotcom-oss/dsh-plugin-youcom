@@ -2,12 +2,37 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as youcomPlugin from '../src/index.ts'
-import { YouComSearchProvider, YOUCOM_PROVIDER_ID, mapYouComResult, mapYouComSearchResponse } from '../src/search-provider.ts'
+import { YouComSearchProvider, YOUCOM_FREE_MCP_URL, YOUCOM_PROVIDER_ID, mapYouComResult, mapYouComSearchResponse } from '../src/search-provider.ts'
 
-const options = { apiKey: 'youcom-key', baseURL: 'https://api.youcom.test', pluginVersion: '0.1.0', includeNews: true }
+const options = {
+  apiKey: 'youcom-key',
+  baseURL: 'https://api.youcom.test',
+  freeSearchURL: YOUCOM_FREE_MCP_URL,
+  pluginVersion: '0.1.0',
+  includeNews: true,
+}
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
+}
+
+/** An SSE-framed MCP `tools/call` success response, matching the live wire shape. */
+function sseToolCallResponse(id: number, resultBody: Record<string, unknown>, init: ResponseInit = {}): Response {
+  const message = { jsonrpc: '2.0', id, result: resultBody }
+  return new Response(`event: message\ndata: ${JSON.stringify(message)}\n\n`, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    ...init,
+  })
+}
+
+/** An SSE-framed MCP JSON-RPC protocol-level error response (e.g. an unknown tool name). */
+function sseErrorResponse(id: number, code: number, message: string): Response {
+  const body = { jsonrpc: '2.0', id, error: { code, message } }
+  return new Response(`event: message\ndata: ${JSON.stringify(body)}\n\n`, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  })
 }
 
 /** A Response whose body read rejects the way an abort mid-read does. */
@@ -88,16 +113,24 @@ describe('You.com result mapping', () => {
 })
 
 describe('YouComSearchProvider availability', () => {
-  it('is unavailable without a key', () => {
-    expect(new YouComSearchProvider({ ...options, apiKey: '' }).available()).toBe(false)
+  it('is available without a key — falls back to the keyless MCP profile', () => {
+    expect(new YouComSearchProvider({ ...options, apiKey: '' }).available()).toBe(true)
   })
 
   it('is available with a key', () => {
     expect(new YouComSearchProvider(options).available()).toBe(true)
   })
 
-  it('is misconfigured when the base URL is unparseable', () => {
+  it('is misconfigured when the base URL is unparseable (key present, so baseURL is the active endpoint)', () => {
     expect(new YouComSearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
+  })
+
+  it('ignores an unparseable base URL when keyless, since it never dereferences baseURL', () => {
+    expect(new YouComSearchProvider({ ...options, apiKey: '', baseURL: 'not a url' }).available()).toBe(true)
+  })
+
+  it('is misconfigured when keyless and freeSearchURL is unparseable', () => {
+    expect(new YouComSearchProvider({ ...options, apiKey: '', freeSearchURL: 'not a url' }).available()).toBe(false)
   })
 
   it('is misconfigured when the base URL is parseable but not http(s)', () => {
@@ -247,6 +280,118 @@ describe('YouComSearchProvider error handling', () => {
   })
 })
 
+describe('YouComSearchProvider keyless (MCP) search', () => {
+  it('calls the free MCP endpoint with tools/call and no x-api-key header', async () => {
+    const fetchMock = vi.fn(async () => sseToolCallResponse(1, { structuredContent: { results: {} }, content: [{ type: 'text', text: '{"results":{}}' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'hello', maxResults: 5 })
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(YOUCOM_FREE_MCP_URL)
+    const body = JSON.parse(init.body as string)
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'you-search', arguments: { query: 'hello', count: 5 } },
+    })
+    const headers = init.headers as Record<string, string>
+    expect(headers).not.toHaveProperty('x-api-key')
+    expect(headers.accept).toBe('application/json, text/event-stream')
+    expect(headers['x-client-info']).toContain('client=dsh-plugin-youcom/0.1.0')
+  })
+
+  it('prefers structuredContent when present', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseToolCallResponse(1, {
+      structuredContent: { results: { web: [{ url: 'https://a.test', snippets: ['hi'] }] } },
+      content: [{ type: 'text', text: '{"results":{}}' }],
+    })))
+    const result = await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    expect(result.sources).toEqual([{ url: 'https://a.test', snippet: 'hi' }])
+  })
+
+  it('falls back to parsing content[0].text when structuredContent is absent', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseToolCallResponse(1, {
+      content: [{ type: 'text', text: JSON.stringify({ results: { web: [{ url: 'https://b.test', snippets: ['there'] }] } }) }],
+    })))
+    const result = await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    expect(result.sources).toEqual([{ url: 'https://b.test', snippet: 'there' }])
+  })
+
+  it('skips a notification frame with no id and reads the matching result frame', async () => {
+    const notification = { jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'searching' } }
+    const success = { jsonrpc: '2.0', id: 1, result: { structuredContent: { results: { web: [{ url: 'https://c.test', snippets: ['x'] }] } } } }
+    const sse = `event: message\ndata: ${JSON.stringify(notification)}\n\nevent: message\ndata: ${JSON.stringify(success)}\n\n`
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })))
+    const result = await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    expect(result.sources).toEqual([{ url: 'https://c.test', snippet: 'x' }])
+  })
+
+  it('parses a bare JSON (non-SSE) response body the same way', async () => {
+    const success = { jsonrpc: '2.0', id: 1, result: { structuredContent: { results: { web: [{ url: 'https://d.test', snippets: ['y'] }] } } } }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(success), { status: 200, headers: { 'content-type': 'application/json' } })))
+    const result = await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    expect(result.sources).toEqual([{ url: 'https://d.test', snippet: 'y' }])
+  })
+
+  it('maps a JSON-RPC protocol-level error (e.g. tool not found) to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseErrorResponse(1, -32602, 'Tool you-contents not found')))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: expect.stringContaining('Tool you-contents not found') }))
+  })
+
+  it('cites the error code when a JSON-RPC error carries no message', async () => {
+    const body = { jsonrpc: '2.0', id: 1, error: { code: -32601 } }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(`event: message\ndata: ${JSON.stringify(body)}\n\n`, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    })))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: expect.stringContaining('code -32601') }))
+  })
+
+  it('matches a JSON-RPC response whose id came back as a string, not a number', async () => {
+    const success = { jsonrpc: '2.0', id: '1', result: { structuredContent: { results: { web: [{ url: 'https://e.test', snippets: ['z'] }] } } } }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(`event: message\ndata: ${JSON.stringify(success)}\n\n`, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    })))
+    const result = await new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    expect(result.sources).toEqual([{ url: 'https://e.test', snippet: 'z' }])
+  })
+
+  it('maps a tool-level isError result (e.g. validation failure) to WEB_PROVIDER_ERROR with the tool message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseToolCallResponse(1, {
+      isError: true,
+      content: [{ type: 'text', text: 'Input validation error: Invalid arguments for tool you-search: query: Query is required' }],
+    })))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({
+        code: 'WEB_PROVIDER_ERROR',
+        message: 'Input validation error: Invalid arguments for tool you-search: query: Query is required',
+      }))
+  })
+
+  it('maps an HTTP error status to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('rate limited', { status: 429 })))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: expect.stringContaining('429') }))
+  })
+
+  it('maps a network failure to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('connection refused'))))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('maps an abort to WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new DOMException('aborted', 'AbortError'))))
+    await expect(new YouComSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+})
+
 describe('dsh-plugin-youcom search registration', () => {
   it('registers the provider into ctx.web (HMR-safe)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ results: {} })))
@@ -302,15 +447,21 @@ describe('dsh-plugin-youcom search registration', () => {
     await fiber.dispose()
   })
 
-  it('is unavailable when neither config nor env supplies a key', async () => {
+  it('falls back to the keyless MCP profile when neither config nor env supplies a key', async () => {
     const prev = process.env.YDC_API_KEY
     delete process.env.YDC_API_KEY
     try {
+      const fetchMock = vi.fn(async () => new Response(
+        JSON.stringify({ jsonrpc: '2.0', id: 1, result: { structuredContent: { results: {} } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ))
+      vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
       await ctx.plugin(WebRuntime, { searchProvider: YOUCOM_PROVIDER_ID })
       await ctx.plugin(youcomPlugin, {})
-      await expect(ctx.web.search({ query: 'q' }))
-        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE' }))
+      await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ sources: [], truncated: false })
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe(YOUCOM_FREE_MCP_URL)
     } finally {
       if (prev !== undefined) process.env.YDC_API_KEY = prev
     }

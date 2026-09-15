@@ -4,6 +4,8 @@ A [You.com](https://you.com) search + fetch provider plugin for [DeepSeek Harnes
 
 `dsh-plugin-youcom` is a Cordis plugin registering a `WebSearchProvider` (`POST /v1/search`) and a `WebFetchProvider` (`POST /v1/contents`) with the dsh web seam (`ctx.web`).
 
+Search works with **no API key**: without one, it falls back to You.com's public, unauthenticated `you-search` MCP profile instead of the keyed REST endpoint. Fetch has no such fallback — see [Known Limitations](#known-limitations).
+
 ## Install
 
 Third-party providers ship as out-of-tree plugins, discovered through the [`dsh-plugin`](https://github.com/topics/dsh-plugin) GitHub topic. Add this package to a profile:
@@ -35,8 +37,9 @@ Set `YDC_API_KEY` (get one at [you.com/platform/api-keys](https://you.com/platfo
 
 | Field | Default | Meaning |
 |---|---|---|
-| `apiKey` | `$YDC_API_KEY` | You.com API key. Empty or absent makes both providers unavailable |
-| `baseURL` | `https://ydc-index.io` | Endpoint base shared by `/v1/search` and `/v1/contents`. Must be `http(s)`, and any path prefix it carries (a proxy mount) is kept |
+| `apiKey` | `$YDC_API_KEY` | You.com API key. Empty or absent: search falls back to the keyless MCP profile below; fetch becomes unavailable |
+| `baseURL` | `https://ydc-index.io` | Endpoint base shared by `/v1/search` and `/v1/contents`. Must be `http(s)`, and any path prefix it carries (a proxy mount) is kept. Only used when `apiKey` is set |
+| `freeSearchURL` | `https://api.you.com/mcp?profile=free` | Keyless MCP endpoint search calls when `apiKey` is empty. No fetch equivalent exists |
 | `numResults` | (unset) | Default search result count when a request carries no `maxResults` |
 | `includeNews` | `true` | Merge `results.news[]` into search sources alongside `results.web[]` |
 
@@ -51,8 +54,12 @@ Set `YDC_API_KEY` (get one at [you.com/platform/api-keys](https://you.com/platfo
     fetchProvider: youcom
 ```
 
+**Upgrading from 0.1.1 or earlier, with no `apiKey` configured:** before the keyless fallback, an unconfigured install always reported `available() === false` for search, so stacking it alongside another search provider with no explicit `searchProvider` pin worked by accident — this one silently excluded itself. From 0.1.2 on, an unconfigured install is keyless-available, so that same no-pin stack now throws `WEB_PROVIDER_AMBIGUOUS` instead of silently picking the other provider. If you stack this with another search provider and don't set `apiKey`, pin `searchProvider` explicitly as shown above.
+
 ## Known Limitations
 
+- **Keyless search only — there is no keyless fetch.** You.com's public `free` MCP profile exposes only `you-search` (confirmed live via `tools/list`); it does not expose `you-contents`, so `WebFetchProvider` stays key-gated regardless of `apiKey`.
+- **The keyless path is anonymous and rate-limited by You.com.** Configure `apiKey` for higher limits, and to enable fetch.
 - **`fetch`'s `statusCode` is always `200` on success.** `/v1/contents` retrieves and extracts server-side and reports no origin HTTP status, so a page that 404'd at the origin but still yielded extractable content is indistinguishable from a clean 200 here. A raw HTTP fetch provider reports the real code.
 - **`fetch`'s `truncated` is always `false`.** `/v1/contents` documents no truncation signal, so this can under-report but never over-report.
 - **Search results carry no generated answer.** `/v1/search` returns sources only, so `content` is omitted rather than invented, and a source with no snippet stays snippet-less.

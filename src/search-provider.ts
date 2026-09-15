@@ -31,18 +31,115 @@ export const YOUCOM_PROVIDER_ID = 'youcom'
 /** Default You.com API endpoint base; `/v1/search` is appended. */
 export const YOUCOM_DEFAULT_BASE_URL = 'https://ydc-index.io'
 
+/**
+ * You.com's public, unauthenticated MCP profile — confirmed live to expose only `you-search`
+ * (and `you-discover`); it does not expose `you-contents`, so there is no keyless fetch
+ * equivalent. Used as the search fallback when no `apiKey` is configured.
+ */
+export const YOUCOM_FREE_MCP_URL = 'https://api.you.com/mcp?profile=free'
+
+/** The tool name this provider calls on the free MCP profile. */
+const FREE_SEARCH_TOOL_NAME = 'you-search'
+
+/** Fixed JSON-RPC request id: each call is one independent HTTP request, never multiplexed. */
+const MCP_REQUEST_ID = 1
+
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface YouComSearchProviderOptions {
-  /** You.com API key. Empty/absent makes the provider unavailable. */
+  /** You.com API key. Empty/absent falls back to the keyless MCP profile below. */
   apiKey: string
-  /** Endpoint base; `/v1/search` is appended. */
+  /** Endpoint base; `/v1/search` is appended. Only used when `apiKey` is set. */
   baseURL: string
+  /** Keyless MCP endpoint used when `apiKey` is empty. */
+  freeSearchURL: string
   /** This package's version, sent in the `X-Client-Info` attribution header. */
   pluginVersion: string
   /** Default result count when a request carries no `maxResults`. */
   numResults?: number
   /** Whether `results.news[]` is merged into `sources[]` alongside `results.web[]`. */
   includeNews: boolean
+}
+
+/** One MCP tool-result content block — a search or tool-error message arrives as its `text`. */
+interface McpContentBlock {
+  readonly type: string
+  readonly text?: string
+}
+
+/** Minimal shape of one JSON-RPC 2.0 message read off the MCP response (request or notification). */
+interface McpJsonRpcMessage {
+  readonly id?: number | string
+  readonly error?: { readonly code: number, readonly message: string }
+  readonly result?: {
+    readonly isError?: boolean
+    readonly content?: readonly McpContentBlock[]
+    readonly structuredContent?: unknown
+  }
+}
+
+/**
+ * Split an SSE body (`event: message\ndata: {...}\n\n`, possibly several frames — a tool call
+ * can emit a `notifications/message` log frame before its `result` frame) into parsed JSON
+ * blocks. An unparseable block is skipped rather than failing the whole response.
+ */
+function parseSseDataBlocks(body: string): unknown[] {
+  const blocks: unknown[] = []
+  for (const frame of body.split(/\r?\n\r?\n/)) {
+    const dataLines = frame.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trim())
+    if (dataLines.length === 0) continue
+    try {
+      blocks.push(JSON.parse(dataLines.join('\n')))
+    } catch {
+      // Skip: an unparseable frame must not fail the whole response.
+    }
+  }
+  return blocks
+}
+
+/**
+ * Find the JSON-RPC message matching `id` in an MCP response body, whether the server framed
+ * it as SSE (`text/event-stream`, confirmed live for this endpoint) or sent a bare JSON object.
+ * Compares `id` as a string: JSON-RPC 2.0 permits either a number or a string id, and nothing
+ * here should assume a gateway echoes the request's numeric id back as a number.
+ */
+function extractJsonRpcMessage(body: string, id: number): McpJsonRpcMessage | undefined {
+  const sseBlocks = parseSseDataBlocks(body)
+  let candidates = sseBlocks
+  if (candidates.length === 0) {
+    try {
+      candidates = [JSON.parse(body)]
+    } catch {
+      candidates = []
+    }
+  }
+  return candidates.find(
+    (candidate): candidate is McpJsonRpcMessage =>
+      typeof candidate === 'object' && candidate !== null && String((candidate as { id?: unknown }).id) === String(id),
+  )
+}
+
+/** The first `text` content block's text, if any — both a success payload and a tool error report their message this way. */
+function findTextBlock(content: readonly McpContentBlock[] | undefined): string | undefined {
+  return content?.find(block => block.type === 'text')?.text
+}
+
+/**
+ * Pull the tool's search payload out of a successful `tools/call` result: prefer
+ * `structuredContent` (already-parsed JSON, confirmed live alongside `content`), falling back
+ * to parsing the `content[0].text` block — the same envelope shape `/v1/search` returns.
+ */
+function extractSearchResponse(result: McpJsonRpcMessage['result']): YouComSearchResponse | undefined {
+  if (result === undefined) return undefined
+  if (typeof result.structuredContent === 'object' && result.structuredContent !== null) {
+    return result.structuredContent as YouComSearchResponse
+  }
+  const text = findTextBlock(result.content)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(text) as YouComSearchResponse
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -91,12 +188,17 @@ export class YouComSearchProvider implements WebSearchProvider {
   constructor(private readonly options: YouComSearchProviderOptions) {}
 
   available(): boolean {
-    return this.options.apiKey.length > 0
-      && isValidBaseUrl(this.options.baseURL)
-      && (this.options.numResults === undefined || isPositiveInteger(this.options.numResults))
+    // Only the endpoint the active path actually calls needs to be a valid URL: baseURL is
+    // never dereferenced once apiKey is empty, and vice versa.
+    const endpointValid = this.options.apiKey.length > 0
+      ? isValidBaseUrl(this.options.baseURL)
+      : isValidBaseUrl(this.options.freeSearchURL)
+    return endpointValid && (this.options.numResults === undefined || isPositiveInteger(this.options.numResults))
   }
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
+    if (this.options.apiKey.length === 0) return this.searchKeyless(request, signal)
+
     // A per-request bound wins over the configured default; either may be absent.
     const numResults = request.maxResults ?? this.options.numResults
     const url = resolveApiUrl(this.options.baseURL, 'v1/search')
@@ -148,6 +250,83 @@ export class YouComSearchProvider implements WebSearchProvider {
       if (isAbortError(error)) throw new WebError('You.com search aborted', 'WEB_ABORTED', { cause: error })
       throw new WebError(`You.com returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
+  }
+
+  /**
+   * Keyless fallback: calls `you-search` on You.com's public, unauthenticated MCP profile
+   * (confirmed live: an anonymous, rate-limited `tools/call`, SSE-framed) instead of the keyed
+   * REST endpoint. There is no keyless fetch equivalent — that profile does not expose
+   * `you-contents` — so `YouComFetchProvider` stays key-gated.
+   */
+  private async searchKeyless(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
+    const numResults = request.maxResults ?? this.options.numResults
+
+    let response: Response
+    try {
+      response = await fetch(this.options.freeSearchURL, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          'content-type': 'application/json',
+          // Both media types are required: the server framed its response as SSE even though
+          // this request also accepts a bare JSON body (confirmed live).
+          'accept': 'application/json, text/event-stream',
+          'x-client-info': buildClientInfoHeader(this.options.pluginVersion),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: MCP_REQUEST_ID,
+          method: 'tools/call',
+          params: {
+            name: FREE_SEARCH_TOOL_NAME,
+            arguments: {
+              query: request.query,
+              ...numResults !== undefined ? { count: numResults } : {},
+            },
+          },
+        }),
+        ...signal !== undefined ? { signal } : {},
+      })
+    } catch (error: unknown) {
+      if (isAbortError(error)) throw new WebError('You.com keyless search aborted', 'WEB_ABORTED', { cause: error })
+      throw new WebError(`You.com keyless search request failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+    }
+
+    if (!response.ok) {
+      throw new WebError(`You.com keyless search HTTP error (HTTP ${response.status})`, 'WEB_PROVIDER_ERROR')
+    }
+
+    let body: string
+    try {
+      body = await response.text()
+    } catch (error: unknown) {
+      if (isAbortError(error)) throw new WebError('You.com keyless search aborted', 'WEB_ABORTED', { cause: error })
+      throw new WebError(`You.com keyless search returned an unreadable body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+    }
+
+    const message = extractJsonRpcMessage(body, MCP_REQUEST_ID)
+    if (message === undefined) {
+      throw new WebError('You.com keyless search returned no matching JSON-RPC response', 'WEB_PROVIDER_ERROR')
+    }
+    // A protocol-level failure (bad method/tool name, malformed request) — distinct from a
+    // tool-level failure below, which succeeds at the JSON-RPC layer but reports isError. The
+    // body is cast, not validated, so `error.message` may be missing or non-string in practice.
+    if (message.error !== undefined) {
+      const detail = typeof message.error.message === 'string' && message.error.message.length > 0
+        ? message.error.message
+        : `code ${message.error.code}`
+      throw new WebError(`You.com keyless search error: ${detail}`, 'WEB_PROVIDER_ERROR')
+    }
+    if (message.result?.isError === true) {
+      const text = findTextBlock(message.result.content)
+      throw new WebError(text ?? 'You.com keyless search tool reported an error', 'WEB_PROVIDER_ERROR')
+    }
+
+    const payload = extractSearchResponse(message.result)
+    if (payload === undefined) {
+      throw new WebError('You.com keyless search returned an unprocessable tool result', 'WEB_PROVIDER_ERROR')
+    }
+    return mapYouComSearchResponse(payload, this.options.includeNews)
   }
 }
 
