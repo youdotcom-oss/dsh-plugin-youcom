@@ -94,13 +94,6 @@ npm test            # vitest, but read the warning below first
 env -u YDC_API_KEY npx vitest run
 ```
 
-Two things are maintained by hand:
-
-- `PLUGIN_VERSION` in `src/index.ts` is a literal, not read from `package.json`. Bump it alongside every version bump.
-- The wire contract is verified by live call, not from SDK documentation. Confirm a new field against a real response before mapping it.
-
-`src/search-provider.ts` and `src/fetch-provider.ts` are thin adapters: cheap local `available()` checks, `WebError` with a routable `code` on every failure path, and no invented fields.
-
-## License
+License
 
 MIT
