@@ -11,6 +11,9 @@
  * - `{"errors": [{"title": "...", ...}]}` — a JSON:API-style 422 shape.
  * - `{"message": "..."}` — confirmed live: a gateway/authorizer layer in front of the app
  *   rejects a malformed key with this shape before the app-level error models ever apply.
+ *
+ * Each shape belongs to a different endpoint or rejection layer, so at most one can appear on
+ * any single body and the order these are checked in carries no priority.
  * @module dsh-plugin-youcom/error-message
  */
 

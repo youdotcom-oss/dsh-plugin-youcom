@@ -31,7 +31,7 @@ Set `YDC_API_KEY` (get one at [you.com/platform/api-keys](https://you.com/platfo
 | Field | Default | Meaning |
 |---|---|---|
 | `apiKey` | `$YDC_API_KEY` | You.com API key; empty or absent makes both providers unavailable |
-| `baseURL` | `https://ydc-index.io` | Endpoint base shared by `/v1/search` and `/v1/contents` |
+| `baseURL` | `https://ydc-index.io` | Endpoint base shared by `/v1/search` and `/v1/contents`; must be `http(s)`, and any path prefix it carries (a proxy mount) is kept |
 | `numResults` | (unset) | Default search result count when a request carries no `maxResults` |
 | `includeNews` | `true` | Merge `results.news[]` into search sources alongside `results.web[]` |
 

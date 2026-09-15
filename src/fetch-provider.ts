@@ -10,7 +10,7 @@ import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
 import { extractYouComErrorMessage } from './error-message.js'
-import { isAbortError, isValidBaseUrl } from './shared.js'
+import { isAbortError, isValidBaseUrl, resolveApiUrl } from './shared.js'
 import type { YouComContentsResponse } from './types.js'
 
 /** Stable id this provider registers under. */
@@ -68,7 +68,7 @@ export class YouComFetchProvider implements WebFetchProvider {
   }
 
   async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult> {
-    const url = new URL('/v1/contents', this.options.baseURL)
+    const url = resolveApiUrl(this.options.baseURL, 'v1/contents')
     let response: Response
     try {
       response = await fetch(url, {

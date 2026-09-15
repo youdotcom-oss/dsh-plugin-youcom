@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-web'
 import { buildClientInfoHeader } from './attribution.js'
 import { extractYouComErrorMessage } from './error-message.js'
-import { isAbortError, isValidBaseUrl } from './shared.js'
+import { isAbortError, isValidBaseUrl, resolveApiUrl } from './shared.js'
 import type { YouComSearchResponse, YouComSearchResultEntry } from './types.js'
 
 /** Stable id this provider registers under. */
@@ -47,8 +47,8 @@ export interface YouComSearchProviderOptions {
 
 /**
  * Map one You.com result entry to a normalized source, or `undefined` when it
- * carries no usable URL — a defensive guard since the field is typed
- * optional on the wire.
+ * carries no usable URL — the response body is cast rather than validated, so a
+ * URL-less entry is still reachable at runtime despite the type saying otherwise.
  *
  * @param entry - one entry of `results.web[]` or `results.news[]`.
  * @returns the normalized source, or `undefined` when the entry has no URL.
@@ -99,7 +99,7 @@ export class YouComSearchProvider implements WebSearchProvider {
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     // A per-request bound wins over the configured default; either may be absent.
     const numResults = request.maxResults ?? this.options.numResults
-    const url = new URL('/v1/search', this.options.baseURL)
+    const url = resolveApiUrl(this.options.baseURL, 'v1/search')
 
     let response: Response
     try {

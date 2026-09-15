@@ -10,6 +10,12 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
 }
 
+/** A Response whose body read rejects the way an abort mid-read does. */
+function abortingResponse(init: ResponseInit = {}): Response {
+  const body = new ReadableStream({ start: controller => controller.error(new DOMException('aborted', 'AbortError')) })
+  return new Response(body, { status: 200, ...init })
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -57,6 +63,11 @@ describe('YouComFetchProvider availability', () => {
   it('is misconfigured when the base URL is unparseable', () => {
     expect(new YouComFetchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
+
+  it('is misconfigured when the base URL is parseable but not http(s)', () => {
+    expect(new YouComFetchProvider({ ...options, baseURL: 'localhost:8080' }).available()).toBe(false)
+    expect(new YouComFetchProvider({ ...options, baseURL: 'http://localhost:8080' }).available()).toBe(true)
+  })
 })
 
 describe('YouComFetchProvider request mapping', () => {
@@ -72,6 +83,14 @@ describe('YouComFetchProvider request mapping', () => {
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['x-api-key']).toBe('youcom-key')
     expect(JSON.parse(init.body as string)).toEqual({ urls: ['https://a.test'], formats: ['markdown', 'html'] })
+  })
+
+  it('keeps a path prefix on the configured base URL', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ url: 'https://a.test', markdown: 'content' }))
+    vi.stubGlobal('fetch', fetchMock)
+    await new YouComFetchProvider({ ...options, baseURL: 'https://gateway.test/youcom' }).fetch({ url: 'https://a.test' })
+    const [url] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.toString()).toBe('https://gateway.test/youcom/v1/contents')
   })
 
   it('takes the first entry when the response is an array', async () => {
@@ -109,10 +128,28 @@ describe('YouComFetchProvider error handling', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
-  it('propagates the no-content WebError from response mapping', async () => {
+  it('propagates the no-content WebError from response mapping, message intact', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ url: 'https://a.test' })))
+    // The message must survive the surrounding catch: without the `instanceof WebError`
+    // re-throw it is rewrapped as an unprocessable-body error, which misdiagnoses a page
+    // that was retrieved fine but yielded nothing extractable.
     await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+      .rejects.toThrow(expect.objectContaining({
+        code: 'WEB_PROVIDER_ERROR',
+        message: 'You.com contents returned no retrievable page content',
+      }))
+  })
+
+  it('maps an abort during the error-body read to WEB_ABORTED, not the HTTP status message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => abortingResponse({ status: 500 })))
+    await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps an abort during the success-body read to WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => abortingResponse()))
+    await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 })
 

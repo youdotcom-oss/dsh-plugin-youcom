@@ -10,6 +10,12 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
 }
 
+/** A Response whose body read rejects the way an abort mid-read does. */
+function abortingResponse(init: ResponseInit = {}): Response {
+  const body = new ReadableStream({ start: controller => controller.error(new DOMException('aborted', 'AbortError')) })
+  return new Response(body, { status: 200, ...init })
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -94,6 +100,15 @@ describe('YouComSearchProvider availability', () => {
     expect(new YouComSearchProvider({ ...options, baseURL: 'not a url' }).available()).toBe(false)
   })
 
+  it('is misconfigured when the base URL is parseable but not http(s)', () => {
+    // A scheme-less `localhost:8080` parses as scheme `localhost:`, and resolving a path
+    // against it throws — reporting it usable would let that throw escape as a bare
+    // TypeError instead of a coded WebError.
+    expect(new YouComSearchProvider({ ...options, baseURL: 'localhost:8080' }).available()).toBe(false)
+    expect(new YouComSearchProvider({ ...options, baseURL: 'file:///etc/passwd' }).available()).toBe(false)
+    expect(new YouComSearchProvider({ ...options, baseURL: 'http://localhost:8080' }).available()).toBe(true)
+  })
+
   it('is misconfigured when numResults is set but not a positive integer', () => {
     expect(new YouComSearchProvider({ ...options, numResults: -1 }).available()).toBe(false)
     expect(new YouComSearchProvider({ ...options, numResults: 1.5 }).available()).toBe(false)
@@ -149,6 +164,14 @@ describe('YouComSearchProvider request mapping', () => {
     await new YouComSearchProvider(options).search({ query: 'q' }, controller.signal)
     const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
     expect(init.signal).toBe(controller.signal)
+  })
+
+  it('keeps a path prefix on the configured base URL', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ results: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+    await new YouComSearchProvider({ ...options, baseURL: 'https://gateway.test/youcom' }).search({ query: 'q' })
+    const [url] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.toString()).toBe('https://gateway.test/youcom/v1/search')
   })
 })
 
@@ -209,6 +232,18 @@ describe('YouComSearchProvider error handling', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })))
     await expect(new YouComSearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('maps an abort during the error-body read to WEB_ABORTED, not the HTTP status message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => abortingResponse({ status: 500 })))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps an abort during the success-body read to WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => abortingResponse()))
+    await expect(new YouComSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 })
 
