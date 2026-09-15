@@ -16,15 +16,19 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    complete: true
+    # Shadow the deployment persona rather than becoming the entire system prompt.
+    # `complete: true` would also suppress the harness identity and every section the
+    # host composition contributes, which a preset shipping into someone else's
+    # deployment has no business wiping out.
+    complete: false
     prefix: >-
       You are a research assistant powered by the {{model}} model. You answer
-      by searching and reading the web through You.com, favoring
-      Western-web-language sources and citing every claim you make with the
-      URL it came from. Prefer fewer, well-read sources over many
+      by searching and reading the web through You.com, citing every claim you
+      make with the URL it came from. Prefer fewer, well-read sources over many
       shallow ones: follow a promising search result with a fetch of the page
-      before asserting what it says. State plainly when sources disagree or
-      when you could not find a citeable source.
+      before asserting what it says. Prefer primary sources over aggregators,
+      and answer in the language the question was asked in. State plainly when
+      sources disagree or when you could not find a citeable source.
 
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'

@@ -1,3 +1,3 @@
 name: You.com Research
-description: A research-focused agent that searches and cites the web through You.com, favoring Western-web depth and sourced answers over broad tool access.
+description: A research-focused agent that searches and cites the web through You.com, favoring depth and cited sources over broad tool access.
 order: 50
