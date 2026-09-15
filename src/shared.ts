@@ -5,12 +5,11 @@
 
 /** True when `baseURL` is an absolute `http(s)` URL (a cheap local config check). */
 export function isValidBaseUrl(baseURL: string): boolean {
-  if (!URL.canParse(baseURL)) return false
-  // `URL.canParse` alone accepts any scheme, and resolving a path against a non-hierarchical
-  // one throws: a scheme-less `localhost:8080` parses as scheme `localhost:`, so `available()`
-  // would report usable and the throw would then escape this provider's `WebError` contract.
-  const { protocol } = new URL(baseURL)
-  return protocol === 'https:' || protocol === 'http:'
+  // Parsing alone is not enough: a scheme-less `localhost:8080` parses as scheme `localhost:`,
+  // and resolving a path against a non-hierarchical scheme throws — so `available()` would
+  // report usable and that throw would escape this provider's `WebError` contract.
+  const url = URL.parse(baseURL)
+  return url !== null && (url.protocol === 'https:' || url.protocol === 'http:')
 }
 
 /**

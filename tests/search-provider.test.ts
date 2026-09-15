@@ -282,6 +282,26 @@ describe('dsh-plugin-youcom search registration', () => {
     }
   })
 
+  it('carries baseURL, numResults, and includeNews from config into the provider', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      results: { web: [{ url: 'https://web.test', snippets: ['w'] }], news: [{ url: 'https://news.test', snippets: ['n'] }] },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { searchProvider: YOUCOM_PROVIDER_ID })
+    const fiber = await ctx.plugin(youcomPlugin, {
+      apiKey: 'youcom-key', baseURL: 'https://gateway.test/youcom', numResults: 4, includeNews: false,
+    })
+
+    const result = await ctx.web.search({ query: 'q' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.toString()).toBe('https://gateway.test/youcom/v1/search')
+    expect(JSON.parse(init.body as string)).toMatchObject({ count: 4 })
+    expect(result.sources).toEqual([{ url: 'https://web.test', snippet: 'w' }])
+
+    await fiber.dispose()
+  })
+
   it('is unavailable when neither config nor env supplies a key', async () => {
     const prev = process.env.YDC_API_KEY
     delete process.env.YDC_API_KEY

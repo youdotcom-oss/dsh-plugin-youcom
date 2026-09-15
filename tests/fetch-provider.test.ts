@@ -140,6 +140,15 @@ describe('YouComFetchProvider error handling', () => {
       }))
   })
 
+  it('maps an empty array response to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
+      .rejects.toThrow(expect.objectContaining({
+        code: 'WEB_PROVIDER_ERROR',
+        message: 'You.com contents returned an empty response',
+      }))
+  })
+
   it('maps an abort during the error-body read to WEB_ABORTED, not the HTTP status message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => abortingResponse({ status: 500 })))
     await expect(new YouComFetchProvider(options).fetch({ url: 'https://a.test' }))
