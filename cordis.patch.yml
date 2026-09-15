@@ -1,14 +1,13 @@
 # The @youdotcom-oss/dsh-plugin-youcom bundle patch: mounts the You.com search + fetch
-# provider into an existing composition's `ctx.web`. Requires the composition
-# already loads `@deepseek-ai/dsh-web` (every shipped profile does).
+# provider and pins it as the active provider on `ctx.web`. Requires the
+# composition already loads `@deepseek-ai/dsh-web` (every shipped profile does).
 #
-# This only inserts a new row, so it is safe to stack alongside other search
-# providers. When more than one search
-# provider ends up mounted, pin the one to use on the host's `web` row:
-#
-#   - id: web
-#     config:
-#       searchProvider: youcom
+# This patch replaces the `web` row's `searchProvider` / `fetchProvider` config
+# — installing this plugin means opting into You.com for web access. The base
+# bundle only sets those two fields on the row, so nothing else is clobbered.
+# To stack this alongside another provider instead, delete the `- id: web`
+# stanza below and manually pin `searchProvider: youcom` on your profile's own
+# cordis.patch.yml.
 #
 # The `youcom-research` agent preset (see this package's presets/ directory)
 # is a separate, opt-in differentiator: a research-oriented agent persona
@@ -16,6 +15,11 @@
 # config change, documented in this package's README rather than patched
 # here — a patch replaces a row's whole config, and this package must not
 # guess at (and clobber) a deployment's existing preset roots.
+
+- id: web
+  config:
+    searchProvider: youcom
+    fetchProvider: youcom
 
 - insert:
     - id: youcom
